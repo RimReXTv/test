@@ -1,0 +1,138 @@
+package com.example.protocol
+
+object WhitepaperDocs {
+    val specifications = mapOf(
+        "Protocol Overview" to """
+            # AET Genesis Protocol Specification (v1.0.0-Genesis)
+            
+            Welcome to the official technical whitepaper of the **AET Genesis Protocol**.
+            
+            The AET (Alpha Era Token) Protocol is designed as an energy-efficient, decentralized ledger crafted specifically for high-frequency low-power environments—such as mobile devices—without compromising cryptographic finality or security.
+            
+            ---
+            
+            ## 1. System Architecture
+            The AET network utilizes a decoupled layer structure:
+            1. **Ledger Storage Layer:** Relies on an embedded SQLite database (Room/Android-native) that is fully durable, transaction-isolated, and resistant to state corruption through atomic commits (WAL journaling) (0.13).
+            2. **Consensus Layer:** Proof of Availability + Validation (PoAV), eliminating classical Proof of Work mining, optimizing device battery lifetime (0.4, 0.20).
+            3. **RPC API Layer:** Real internal JSON RPC endpoint supporting queries for balance, historical block information, mempool transactions, and propagation state (0.17).
+            
+            ---
+            
+            ## 2. Tokenomics & Space Emission
+            - **Genesis Allocation:** 10 Billion microAET (Standard base unit).
+            - **Unit Multipliers:** 1 AET = 1,000,000 microAET.
+            - **Block Generation Incentives:** Validator nodes receive 50,000 microAET on successfully proposing and signing blocks from verified mempool records (0.19, 0.20).
+            - **Anti-Spam Cost Protection:** Calculated variable transaction fees prevent sybil congestion (0.16).
+        """.trimIndent(),
+
+        "Consensus Mechanism" to """
+            # Consensus Specification: Proof of Availability + Validation
+            
+            AET Genesis Protocol implements **Proof of Availability + Validation (PoAV)**. This avoids classical CPU-heavy Hash mining, enabling smartphones and hardware-constrained nodes to securely participate as active block checkers.
+            
+            ---
+            
+            ## 1. Block Proposing & Selection
+            - On the network, blocks are proposed by a rotating set of active Validators who have locked **at least 100 AET (100,000,000 microAET)** of collateral stake (0.19, 0.4).
+            - The block proposer bundles pending, valid transactions from the mempool (0.8), computes the Merkle Root root, constructs the BlockHeader, and signs the proposal (0.6, 0.7).
+            
+            ---
+            
+            ## 2. Block Verification & Voting Quorum
+            - Once a block proposal is broadcast, mobile participants verify:
+                1. The header’s chain status is sequential and signature is valid.
+                2. Every inner transaction's signature is correct and has a valid nonce (0.7).
+                3. The proposer’s cryptographic claim is valid against active bootstrap validator authorities (0.5).
+            - If valid, validators broadcast a cryptographic vote.
+            - **Finality Consensus:** A block is finalized and appended to the ledger strictly after receiving quorum approval from the active consensus authorities or when the longest authentic validator weight chain dominates (0.4, 0.9).
+            
+            ---
+            
+            ## 3. Malicious Block Rejection
+            - Proponents submitting double-spent transactions, invalid nonces, or fraudulent state roots are rejected by validating peers.
+            - Malicious proposers face immediate block blacklist rejection.
+        """.trimIndent(),
+
+        "Block & Transaction Formats" to """
+            # Cryptographic Formats & Data Layouts
+            
+            The AET Protocol relies on rigorous structural definition to ensure block validation is fast and mathematical. All hashes are generated using **SHA-256** (0.6, 0.7).
+            
+            ---
+            
+            ## 1. Block Header Layout
+            The BlockHeader consists of key metadata elements formatted as a deterministic string payload for hashing (0.6):
+            ```
+            Header = VersionString | ChainID | Height | Timestamp | PreviousHash | MerkleRoot | ValidatorPubKey
+            ```
+            
+            - **Version:** standard Int version protocol indicator (usually 1).
+            - **Chain ID:** Bound identifier representing the unique runtime network.
+            - **Height:** Monotonically increasing sequential index.
+            - **Timestamp:** Epoch millisecond of creation.
+            - **Previous Hash:** SHA-256 hash of the parent block header.
+            - **Merkle Root:** Cryptographic Root representing accumulated transaction signatures (0.6).
+            - **Validator Signature:** ECDSA signature generated by the proposing validator using prime256v1 (secp256r1) curves (0.6).
+            
+            ---
+            
+            ## 2. Transaction Format
+            Each tx contains properties signed together (0.7):
+            ```
+            Transaction = SenderAddress | ReceiverAddress | Amount | Fee | Nonce | Timestamp | ChainID
+            ```
+            - **Replay Protection:** Incorporating `Nonce` (incremental index per ledger account) and binding the `Chain ID` directly to the signature payload prevents cross-environment replays (0.7).
+            - **Determinism:** The payload is converted to a character-sequence array, eliminating field representation ambiguities.
+        """.trimIndent(),
+
+        "Mempool & Anti-Spam" to """
+            # Transaction Mempool & Network Anti-Spam Filtering
+            
+            To safely handle asynchronous user transaction submissions, the core layer supports a persistent mempool (0.8).
+            
+            ---
+            
+            ## 1. Mempool Storage
+            - Local transactions are parsed and put inside the mempool database state.
+            - Transactions with identical signatures are blocked.
+            
+            ---
+            
+            ## 2. Anti-Abuse Rules & Prioritization
+            The protocol enforces structural boundary checks before inserting a transaction (0.16):
+            1. **Minimum Fee Check:**
+                - Mainnet: 10 microAET
+                - Testnet: 5 microAET
+                - Devnet: 1 microAET
+                Any transaction violating the minimum fee floor is discarded immediately.
+            2. **Double-Spend Protection & Balance Check:** Verified against current ledger heights. No negative balances are permitted.
+            3. **Fee Prioritization:** When a validator compiles a block, it orders Transactions inside the mempool descending by the highest fee rate. High fee rate transactions commit first.
+            4. **Eviction / Expiry:** Transactions older than 48 hours without confirmation are automatically expunged from the transaction pool.
+        """.trimIndent(),
+
+        "Fork Resolution & Chain IDs" to """
+            # Fork Choice & Cross-Network Isolation (Chain IDs)
+            
+            Decentralized propagation often leads to ephemeral split branching. AET employs strict deterministic rules to preserve consistent consensus across all active nodes (0.9, 0.10, 0.11).
+            
+            ---
+            
+            ## 1. Fork Resolution Strategy
+            AET uses the **Highest Finalized Weight / Longest Valid Chain** rule set (0.9):
+            - If two valid competing branches exist, the network accepts the branch representing the highest sequential block count (Longest Chain).
+            - In the event of equal heights, the chain validated by the validator with the highest staking/approval score is adopted as the canonical truth.
+            - Non-canonical transaction balances are rolled back to the state accounts of the original block height, and re-inserted in the mempool if valid.
+            
+            ---
+            
+            ## 2. Chain Isolation (0.10, 0.11)
+            To prevent replay exploits, separate Chain IDs partition operations. Signing schemes bind the active Chain ID so a signature on Devnet is rejected on Mainnet:
+            - **AET Mainnet Chain ID:** `aet-mainnet-101`
+            - **AET Testnet Chain ID:** `aet-testnet-202`
+            - **AET Devnet Chain ID:** `aet-devnet-606`
+            
+            Each network runs a disconnected ledger partition using distinct initial bootstrap parameters.
+        """.trimIndent()
+    )
+}

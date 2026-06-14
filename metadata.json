@@ -1,0 +1,6 @@
+{
+  "name": "AET Genesis Protocol",
+  "description": "An advanced Proof of Availability & Validation block explorer, node participant, and core ledger wallet for the AET protocol.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
