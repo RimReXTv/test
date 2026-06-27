@@ -1,0 +1,118 @@
+name: Build Update APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      STORE_PASSWORD: android12345
+      KEY_PASSWORD: android12345
+      KEY_ALIAS: upload
+      GRADLE_VERSION: "9.3.1"
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android packages
+        shell: bash
+        run: |
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+      - name: Restore or create signing key
+        shell: bash
+        run: |
+          if [ ! -f "my-upload-key.jks" ]; then
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -storepass "${STORE_PASSWORD}" \
+              -alias "${KEY_ALIAS}" \
+              -keypass "${KEY_PASSWORD}" \
+              -dname "CN=TakeshiCoin,O=TakeshiCoin,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+          fi
+
+      - name: Create local.properties
+        shell: bash
+        run: |
+          echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+
+      - name: Create .env
+        shell: bash
+        run: |
+          if [ -n "${GEMINI_API_KEY}" ]; then
+            printf "GEMINI_API_KEY=%s\n" "${GEMINI_API_KEY}" > .env
+          else
+            printf "GEMINI_API_KEY=DUMMY_KEY_FOR_CI\n" > .env
+          fi
+
+      - name: Bump version for this build
+        shell: bash
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION_NAME="${GITHUB_REF_NAME#v}"
+          else
+            VERSION_NAME="build-${GITHUB_RUN_NUMBER}"
+          fi
+
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+
+          version_code = os.environ["VERSION_CODE"]
+          version_name = os.environ["VERSION_NAME"]
+
+          new_text = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {version_code}', text)
+          new_text = re.sub(r'versionName\s*=\s*".*?"', f'versionName = "{version_name}"', new_text)
+
+          if new_text == text:
+              raise SystemExit("versionCode/versionName not found in app/build.gradle.kts")
+
+          path.write_text(new_text)
+          print(f"Updated versionCode={version_code}, versionName={version_name}")
+          PY
+
+      - name: Download Gradle
+        shell: bash
+        run: |
+          curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o gradle.zip
+          unzip -q gradle.zip -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Build release APK
+        shell: bash
+        run: |
+          gradle -p . :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TakeshiCoin-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
